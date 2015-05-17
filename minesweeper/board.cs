@@ -46,7 +46,17 @@ namespace minesweeper
             new vector(1, 0),
             new vector(1, 1)
         };
-        private int[] numBomb = { 10, 40, 99 };
+
+        // can't use const for reference type...
+        private readonly int[] _numMines = { 10, 40, 99 };
+        private int numMines
+        {
+            get
+            {
+                return _numMines[(int)currentBoardSize];
+            }
+        }
+
         private Random rand = new Random();
         public enum state
         {
@@ -61,63 +71,119 @@ namespace minesweeper
         };
         private Zone[,] zones;
         public List<Zone> zoneList;
-        public state currentBoardState { get; private set; }
-        public size currentBoardSize { get; private set; }
-        public int unRevealedLeft { get; private set; }
-        private int _minesLeft;
-        public int minesLeft
+
+        private state _currentBoardState;
+        public state currentBoardState
         {
             get
             {
-                return _minesLeft;
+                return _currentBoardState;
             }
-            set
+            private set
             {
-                _minesLeft = value;
-                OnPropertyChanged("minesLeft");
+                _currentBoardState = value;
             }
         }
 
-        static private LinearGradientBrush grayBrush, transparentBrush;
+        private size _currentBoardSize;
+        public size currentBoardSize 
+        { 
+            get
+            {
+                return _currentBoardSize;
+            }
+            private set
+            {
+                _currentBoardSize = value;
+                // **magic here**
+                // if I preverse this two lines, the value of progressBar will be wrong when currentBoardSize is changed
+                // OnPropertyChanged("numRevealedSafe");
+                // OnPropertyChanged("numMarkedMines");
+                OnPropertyChanged("numTotalZone");
+            }
+        }
+
+        private int _numUnrevealedSafe;
+        public int numUnrevealedSafe 
+        {
+            get
+            {
+                return _numUnrevealedSafe;
+            }
+            private set
+            {
+                _numUnrevealedSafe = value;
+                OnPropertyChanged("numRevealedSafe");
+            }
+        }
+        private int _numUnmarkedMines;
+        public int numUnmarkedMines
+        {
+            get
+            {
+                return _numUnmarkedMines;
+            }
+            private set
+            {
+                _numUnmarkedMines = value;
+                OnPropertyChanged("numUnmarkedMines");
+                OnPropertyChanged("numMarkedMines");
+            }
+        }
+
+        // duplicate information for displaying progress bar
+        // uses dependency to notify change
+        public int numRevealedSafe
+        {
+            get
+            {
+                return numTotalZone - numMines - numUnrevealedSafe;
+            }
+        }
+        public int numMarkedMines
+        {
+            get
+            {
+                return numMines - numUnmarkedMines;
+            }
+        }
+        public int numTotalZone
+        {
+            get
+            {
+                return actualBoardSize[(int)currentBoardSize].x * actualBoardSize[(int)currentBoardSize].y;
+            }
+        }
+
+        static private SolidColorBrush grayBrush, transparentBrush;
         static private ImageBrush flagBrush, mineBrush, wrongMarkBrush;
 
         public Board()
         {
             // set state
             currentBoardState = state.waiting;
-            setBoardSize(size.small);
 
-            // initialize lose delegate
+            // add delegate
             lose = revealAllMines;
 
             // initialize background brush(pure color and image)
-            GradientStopCollection gradientStopCollection = new GradientStopCollection();
-            GradientStop gradientStop = new GradientStop();
-            gradientStop.Color = Windows.UI.Colors.Gray;
-            gradientStopCollection.Add(gradientStop);
-            grayBrush = new LinearGradientBrush(gradientStopCollection, 0);
-
-            transparentBrush = new LinearGradientBrush(new GradientStopCollection(), 0);
-
-            flagBrush = new Windows.UI.Xaml.Media.ImageBrush();
-            flagBrush.ImageSource = new Windows.UI.Xaml.Media.Imaging.BitmapImage(new Uri("ms-appx:///Assets/flag.png"));
-            flagBrush.AlignmentX = AlignmentX.Center;
-            flagBrush.AlignmentY = AlignmentY.Center;
-            flagBrush.Stretch = Stretch.UniformToFill;
-
-            mineBrush = new Windows.UI.Xaml.Media.ImageBrush();
-            mineBrush.ImageSource = new Windows.UI.Xaml.Media.Imaging.BitmapImage(new Uri("ms-appx:///Assets/mine.png"));
-            mineBrush.AlignmentX = AlignmentX.Center;
-            mineBrush.AlignmentY = AlignmentY.Center;
-            mineBrush.Stretch = Stretch.UniformToFill;
-
-            wrongMarkBrush = new Windows.UI.Xaml.Media.ImageBrush();
-            wrongMarkBrush.ImageSource = new Windows.UI.Xaml.Media.Imaging.BitmapImage(new Uri("ms-appx:///Assets/wrong mark.png"));
-            wrongMarkBrush.AlignmentX = AlignmentX.Center;
-            wrongMarkBrush.AlignmentY = AlignmentY.Center;
-            wrongMarkBrush.Stretch = Stretch.UniformToFill;
+            grayBrush = new SolidColorBrush(Windows.UI.Colors.Gray);
+            transparentBrush = new SolidColorBrush();
+            flagBrush = newImageBrushFromFile("ms-appx:///Assets/flag.png");
+            mineBrush = newImageBrushFromFile("ms-appx:///Assets/mine.png");
+            wrongMarkBrush = newImageBrushFromFile("ms-appx:///Assets/wrong mark.png");
         }
         
+        private ImageBrush newImageBrushFromFile(string filename)
+        {
+            ImageBrush newImageBrush = new Windows.UI.Xaml.Media.ImageBrush();
+            newImageBrush.ImageSource = new Windows.UI.Xaml.Media.Imaging.BitmapImage(new Uri(filename));
+            newImageBrush.AlignmentX = AlignmentX.Center;
+            newImageBrush.AlignmentY = AlignmentY.Center;
+            newImageBrush.Stretch = Stretch.UniformToFill;
+            return newImageBrush;
+        }
+
         // test if a position is in the board
         private bool isValid(vector v)
         {
@@ -136,7 +202,7 @@ namespace minesweeper
         public void reset()
         {
             resetZones();
-            randomBomb();
+            randomPlaceMines();
             storeToList();
             currentBoardState = state.playing;
         }
@@ -144,8 +210,8 @@ namespace minesweeper
         private void resetZones()
         {
             zones = new Zone[actualBoardSize[(int)currentBoardSize].x, actualBoardSize[(int)currentBoardSize].y];
-            minesLeft = numBomb[(int)currentBoardSize];
-            unRevealedLeft = actualBoardSize[(int)currentBoardSize].x * actualBoardSize[(int)currentBoardSize].y - minesLeft;
+            numUnmarkedMines = numMines;
+            numUnrevealedSafe = numTotalZone - numMines;
             // reset all zones
             for (int i = 0; i < actualBoardSize[(int)currentBoardSize].x; ++i)
                 for (int j = 0; j < actualBoardSize[(int)currentBoardSize].y; ++j)
@@ -155,10 +221,9 @@ namespace minesweeper
                 }
         }
 
-        // randomly place bomb
-        private void randomBomb()
+        private void randomPlaceMines()
         {
-            for (int i = 0; i < numBomb[(int)currentBoardSize]; ++i)
+            for (int i = 0; i < numMines; ++i)
             {
                 int toSetX, toSetY;
                 do
@@ -166,12 +231,12 @@ namespace minesweeper
                     toSetX = rand.Next(actualBoardSize[(int)currentBoardSize].x);
                     toSetY = rand.Next(actualBoardSize[(int)currentBoardSize].y);
                 } while (zones[toSetX, toSetY].state == true);
-                placeBomb(new vector(toSetX, toSetY));
+                placeMine(new vector(toSetX, toSetY));
             }
         }
 
         // place a bomb and update its neighbour
-        private void placeBomb(vector target)
+        private void placeMine(vector target)
         {
             zones[target.x, target.y].state = true;
             for (int i = 0; i < neighbours.Length; ++i)
@@ -216,8 +281,8 @@ namespace minesweeper
                             if (isValid(new vector(x + neighbours[i].x, y + neighbours[i].y)))
                                 open(zoneToOpen + neighbours[i].x * actualBoardSize[(int)currentBoardSize].y + neighbours[i].y);
                     }
-                    --unRevealedLeft;
-                    if (unRevealedLeft == 0)
+                    --numUnrevealedSafe;
+                    if (numUnrevealedSafe == 0)
                     {
                         // win
                         currentBoardState = state.waiting;
@@ -242,7 +307,7 @@ namespace minesweeper
                         zoneList[zoneToMark].background = flagBrush;
                     else
                         zoneList[zoneToMark].background = transparentBrush;
-                    minesLeft += zones[x, y].marked ? -1 : 1;
+                    numUnmarkedMines += zones[x, y].marked ? -1 : 1;
                 }
             }
         }
@@ -251,7 +316,7 @@ namespace minesweeper
         {
             for (int i = 0; i < actualBoardSize[(int)currentBoardSize].x; ++i)
                 for (int j = 0; j < actualBoardSize[(int)currentBoardSize].y; ++j)
-                    if (zones[i, j].state)
+                    if (zones[i, j].state && !zones[i, j].marked)
                         zoneList[i * actualBoardSize[(int)currentBoardSize].y + j].background = mineBrush;
         }
 
@@ -303,6 +368,7 @@ namespace minesweeper
                     result += zones[i, j].state ? "1" : "0";
             return result;
         }
+
         // 接收地图
         public void FromString(string source)
         {
@@ -314,7 +380,7 @@ namespace minesweeper
             for (int i = 0; i < actualBoardSize[(int)currentBoardSize].x; ++i)
                 for (int j = 0; j < actualBoardSize[(int)currentBoardSize].y; ++j)
                     if (source.ElementAt(i * actualBoardSize[(int)currentBoardSize].y + j) == '1')
-                        placeBomb(new vector(i, j));
+                        placeMine(new vector(i, j));
             storeToList();
             currentBoardState = state.playing;
         }

@@ -62,10 +62,24 @@
             <AppBarButton VerticalAlignment="Center" Width="72" Label="Duel" Click="netStartGame" Icon="People"/>
             <AppBarButton VerticalAlignment="Center" Label="结束对战" Click="netEndGame" Icon="BlockContact"/>
         </StackPanel>
-        <TextBlock x:Name="minesLeft" Margin="1221,34,53,662" Text="{Binding minesLeft}" FontSize="32" TextAlignment="Center"/>
+        <TextBlock x:Name="minesLeft" Margin="1221,34,53,662" Text="{Binding numUnmarkedMines}" FontSize="32" TextAlignment="Center"/>
         <TextBlock x:Name="timeElaspedTextBlock" Margin="1084,34,150,662" Text="0" FontSize="32" TextAlignment="Center"/>
-        <ScrollViewer x:Name="log" Margin="0,118,818,578" HorizontalContentAlignment="Center" IsDeferredScrollingEnabled="True" />
+        <ScrollViewer x:Name="log" Margin="0,118,818,583" HorizontalContentAlignment="Center" IsDeferredScrollingEnabled="True" />
         <TextBox x:Name="serverIp" Margin="574,123,643,602" PlaceholderText="服务器端IP" TextAlignment="Center"/>
         <TextBlock x:Name="countDownTextBlock" FontSize="200" Text="" Visibility="Collapsed" Opacity="50" TextAlignment="Center" Margin="0, 300, 0, 0"/>
+        <ProgressBar x:Name="selfRevealedProgressBar" HorizontalAlignment="Left" Height="21" Margin="1009,123,0,0" VerticalAlignment="Top" Width="336" Foreground="Yellow" Maximum="{Binding numTotalZone}" Value="{Binding Path=numRevealedSafe, Mode=OneWay}"/>
+        <ProgressBar x:Name="selfMarkedProgressBar" HorizontalAlignment="Left" Height="21" Margin="1009,123,0,0" VerticalAlignment="Top" Width="336" Foreground="SkyBlue" Background="Transparent" Maximum="{Binding numTotalZone}" Value="{Binding Path=numMarkedMines, Mode=OneWay}" RenderTransformOrigin="0.5,0.5">
+            <ProgressBar.RenderTransform>
+                <CompositeTransform ScaleX="-1"/>
+            </ProgressBar.RenderTransform>
+        </ProgressBar>
+        <TextBlock HorizontalAlignment="Left" Margin="939,123,0,0" TextWrapping="Wrap" Text="自己" VerticalAlignment="Top" FontSize="20"/>
+        <ProgressBar x:Name="componentRevealedProgressBar" HorizontalAlignment="Left" Height="21" Margin="1009,157,0,0" VerticalAlignment="Top" Width="336" Foreground="Yellow" Maximum="{Binding numTotalZone}" Visibility="Collapsed"/>
+        <ProgressBar x:Name="componentMarkedProgressBar" HorizontalAlignment="Left" Height="21" Margin="1009,157,0,0" VerticalAlignment="Top" Width="336" Foreground="SkyBlue" Background="Transparent" Maximum="{Binding numTotalZone}" Visibility="Collapsed" RenderTransformOrigin="0.5,0.5">
+            <ProgressBar.RenderTransform>
+                <CompositeTransform ScaleX="-1"/>
+            </ProgressBar.RenderTransform>
+        </ProgressBar>
+        <TextBlock x:Name="componentTextBlock" HorizontalAlignment="Left" Margin="939,154,0,0" TextWrapping="Wrap" Text="对手" VerticalAlignment="Top" FontSize="20" Visibility="Collapsed"/>
     </Grid>
 </Page>

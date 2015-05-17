@@ -26,6 +26,7 @@ using Windows.ApplicationModel.Activation;
 using Windows.Storage;
 using System.Threading.Tasks;
 using Windows.Security.Cryptography;
+using Windows.UI.Xaml.Media.Animation;
 
 // “空白页”项模板在 http://go.microsoft.com/fwlink/?LinkId=234238 上有介绍
 
@@ -57,10 +58,34 @@ namespace minesweeper
             LocalPlaying,
             NetListening,
             NetConnected,
+            NetReady,
             NetStarting,
             NetPlaying
         };
-        private Status gameStatus;
+        private Status _gameStatus;
+        private Status gameStatus
+        {
+            get
+            {
+                return _gameStatus;
+            }
+            set
+            {
+                if (_gameStatus.ToString().StartsWith("Local") && value.ToString().StartsWith("Net"))
+                {
+                    componentMarkedProgressBar.Visibility = Windows.UI.Xaml.Visibility.Visible;
+                    componentRevealedProgressBar.Visibility = Windows.UI.Xaml.Visibility.Visible;
+                    componentTextBlock.Visibility = Windows.UI.Xaml.Visibility.Visible;
+                }
+                else if (_gameStatus.ToString().StartsWith("Local") && value.ToString().StartsWith("Net"))
+                {
+                    componentMarkedProgressBar.Visibility = Windows.UI.Xaml.Visibility.Collapsed;
+                    componentRevealedProgressBar.Visibility = Windows.UI.Xaml.Visibility.Collapsed;
+                    componentTextBlock.Visibility = Windows.UI.Xaml.Visibility.Collapsed;
+                }
+                _gameStatus = value;
+            }
+        }
 
         enum Difficulty
         {
@@ -69,7 +94,7 @@ namespace minesweeper
             High
         };
         private Difficulty gameDifficulty;
-        private string[] difficultyString = new string[] { "低级", "中级", "高级" };
+        private readonly string[] difficultyString = { "低级", "中级", "高级" };
 
         private Board board;
 
@@ -101,18 +126,27 @@ namespace minesweeper
             gameDifficulty = Difficulty.Low;
             changeSize(Board.size.small);
             refreshBoardView();
+
+            // set data binding
             minesLeft.DataContext = board;
+            selfRevealedProgressBar.DataContext = board;
+            selfMarkedProgressBar.DataContext = board;
+            componentRevealedProgressBar.DataContext = board;
+            componentMarkedProgressBar.DataContext = board;
+            
             // add win and lose delegate
             board.win += winHandler;
             board.lose += loseHandler;
+            
             // initialize countDown_dispatcherTimer
             countdownTimer = new DispatcherTimer();
             countdownTimer.Interval = new TimeSpan(0, 0, 0, 1);
             countdownTimer.Tick += countdownTick;
             gameElapsedTimer = new DispatcherTimer();
-            gameElapsedTimer.Interval = new TimeSpan(0, 0, 0, 1);
+            gameElapsedTimer.Interval = new TimeSpan(0, 0, 0, 0, 200);
             gameElapsedTimer.Tick += gameElapsedTick;
 
+            // set for share
             DataTransferManager.GetForCurrentView().DataRequested += MainPage_DataRequested;
 
             // initialize brush for difficuly button
@@ -124,6 +158,9 @@ namespace minesweeper
             highLightBrush = new SolidColorBrush(Windows.UI.Colors.Tomato);
 
             readFromDataFile();
+
+            // hack
+            board.PropertyChanged += refreshProgressBar;
         }
 
         private async void readFromDataFile()
@@ -207,7 +244,7 @@ namespace minesweeper
             gameElapsedTimer.Start();
         }
 
-        // finish recording game elapsed time, save new highscore if neccessary
+        // game finished, record game elapsed time, save new highscore if neccessary
         private void gameOver()
         {
             elapsedTime = DateTime.Now.Subtract(startTime);
@@ -238,6 +275,8 @@ namespace minesweeper
                 Button button = sender as Button;
                 board.open(int.Parse(button.Tag as string));
             }
+            if (gameStatus == Status.NetPlaying && finished == 0)
+                sendBoardStatistic();
         }
         
         // mark a bomb
@@ -248,6 +287,8 @@ namespace minesweeper
                 Button button = sender as Button;
                 board.mark(int.Parse(button.Tag as string));
             }
+            if (gameStatus == Status.NetPlaying)
+                sendBoardStatistic();
         }
         
         private void Zone_Double_Click(object sender, RoutedEventArgs e)
@@ -257,6 +298,8 @@ namespace minesweeper
                 Button button = sender as Button;
                 board.explore(int.Parse(button.Tag as string));
             }
+            if (gameStatus == Status.NetPlaying && finished == 0)
+                sendBoardStatistic();
         }
         
         private void replay(object sender, RoutedEventArgs e)
@@ -274,25 +317,38 @@ namespace minesweeper
             }
         }
         
-        private void changeSize(Board.size value)
+        private bool changeSize(Board.size value)
         {
             if (gameStatus == Status.LocalWaiting || gameStatus == Status.LocalPlaying || gameStatus == Status.NetListening || gameStatus == Status.NetConnected)
             {
+                if (gameStatus == Status.LocalPlaying)
+                    gameElapsedTimer.Stop();
                 board.setBoardSize(value);
                 refreshBoardView();
+                if (gameStatus.ToString().StartsWith("Local"))
+                    gameStatus = Status.LocalWaiting;
+                return true;
             }
             else
             {
                 writeLog("对战过程中不可以设定大小");
+                return false;
             }
+        }
+
+        // hack
+        private void refreshProgressBar(object sender, PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName == "numRevealedSafe")
+                // hack the weird bug when switching from bigger map to small map
+                selfRevealedProgressBar.Value = board.numRevealedSafe;
         }
         
         private void low(object sender, RoutedEventArgs e)
         {
-            if (gameDifficulty != Difficulty.Low)
+            if (gameDifficulty != Difficulty.Low && changeSize(Board.size.small))
             {
                 gameDifficulty = Difficulty.Low;
-                changeSize(Board.size.small);
                 lowButtonFill.Fill = lowLightBrush;
                 intermediateButtonFill.Fill = intermediateDarkBrush;
                 highButtonFill.Fill = highDarkBrush;
@@ -301,10 +357,9 @@ namespace minesweeper
         
         private void intermediate(object sender, RoutedEventArgs e)
         {
-            if (gameDifficulty != Difficulty.Intermediate)
+            if (gameDifficulty != Difficulty.Intermediate && changeSize(Board.size.medium))
             {
                 gameDifficulty = Difficulty.Intermediate;
-                changeSize(Board.size.medium);
                 lowButtonFill.Fill = lowDarkBrush;
                 intermediateButtonFill.Fill = intermediateLightBrush;
                 highButtonFill.Fill = highDarkBrush;
@@ -313,10 +368,9 @@ namespace minesweeper
         
         private void high(object sender, RoutedEventArgs e)
         {
-            if (gameDifficulty != Difficulty.High)
+            if (gameDifficulty != Difficulty.High && changeSize(Board.size.big))
             {
                 gameDifficulty = Difficulty.High;
-                changeSize(Board.size.big);
                 lowButtonFill.Fill = lowDarkBrush;
                 intermediateButtonFill.Fill = intermediateDarkBrush;
                 highButtonFill.Fill = highLightBrush;
@@ -329,7 +383,7 @@ namespace minesweeper
             {
                 gameStatus = Status.LocalWaiting;
                 gameOver();
-                // messageBox("You win!");
+                messageBox("You win in " + convertMillisecondsToSecondsString((int)elapsedTime.TotalMilliseconds) + "s!");
             }
             else
             {
@@ -350,6 +404,7 @@ namespace minesweeper
             // lose when dueling
             else
             {
+                elapsedTime = DateTime.Now.Subtract(startTime);
                 finished = -1;
                 sendBySocket("fail " + ((int)elapsedTime.TotalMilliseconds).ToString());
             }   
@@ -357,15 +412,23 @@ namespace minesweeper
 
         private async void messageBox(string message)
         {
-            MessageDialog hint = new MessageDialog(message);
-            await hint.ShowAsync();
+            // may be call simultanous and throw an exception
+            try
+            {
+                MessageDialog hint = new MessageDialog(message);
+                await hint.ShowAsync();
+            }
+            catch
+            {
+                // do nothing
+            }
         }
 
         private void writeLog(string message)
         {
             log.Content += message + Environment.NewLine;
-            log.ScrollToVerticalOffset(log.ScrollableHeight);
-            // log.ChangeView(0, log.ScrollableHeight, 1.0f);
+            log.ScrollToVerticalOffset(log.ScrollableHeight + 20);
+            // log.ChangeView(null, log.ScrollableHeight, null);
         }
 
         private void startListen(object sender, RoutedEventArgs e)
@@ -446,7 +509,7 @@ namespace minesweeper
                         {
                             // 显示客户端发送过来的数据
                             string receivedData = reader.ReadString(actualStringLength);
-                            writeLog("接收到数据: " + receivedData);
+                            // writeLog("接收到数据: " + receivedData);
                             messageHandler(receivedData);
                         });
                     }
@@ -472,41 +535,26 @@ namespace minesweeper
                 netEndGame(this, new RoutedEventArgs());
                 return;
             }
-            if (gameStatus == Status.NetConnected)
+            // 收到准备信息
+            else if (receivedData == "Ready" || receivedData.Length >= 81)
             {
-                // 客户端收到地图
+                if (gameStatus == Status.NetConnected)
+                    gameStatus = Status.NetReady;
+                else
+                    startCountDown();
                 if (_listener == null || _listener.Information.LocalPort != "2211")
                 {
                     board.FromString(receivedData);
                     refreshBoardView();
-                    writeLog("已经收到地图,游戏即将开始...");
-                    sendBySocket("Ready");
-                    gameStatus = Status.NetStarting;
+                    writeLog("已经收到地图,游戏可以开始...");
                 }
-                // 服务器端收到再来一发请求 
-                else
-                {
-                    netStartGame(this, new RoutedEventArgs());
-                }
-            }
-            else if (gameStatus == Status.NetStarting)
-            {
-                // 服务端收到确认信息发开始信号
-                if (_listener != null && _listener.Information.LocalPort == "2211")
-                    sendBySocket("Start");
-                // 客户端收到开始信号直接开始
-
-                // 开始游戏
-                finished = 0;
-                startCountDown();
-                startTime = DateTime.Now;
             }
             // 游戏结束，对手结束了或者对面知道了
-            else if (gameStatus == Status.NetPlaying)
+            else
             {
                 string[] result = receivedData.Split(new char[] { ' ' });
                 int ms = int.Parse(result[1]);
-                TimeSpan ComponentTime = new TimeSpan(0, 0, ms / 1000 / 60, ms / 1000 % 60, ms % 60 * 1000);
+                TimeSpan ComponentTime = new TimeSpan(0, 0, ms / 1000 / 60, ms / 1000 % 60, ms % 1000);
                 // 对手完成了
                 if (result[0] == "done")
                 {
@@ -521,7 +569,8 @@ namespace minesweeper
                         messageBox("You lose!");
                     }
                 }
-                else
+                // 对手扑街了
+                else if (result[0] == "fail")
                 {
                     writeLog("对手扑街了，用时 " + ComponentTime.ToString());
                     // 这边更快
@@ -534,14 +583,40 @@ namespace minesweeper
                         messageBox("You win!");
                     }
                 }
-                if (finished == 0)
-                    sendBySocket("gotit 3000000");
-                gameStatus = Status.NetConnected;
+                // 对手确认
+                else if (result[0] == "gotit")
+                {
+                    if (finished == -1)
+                    {
+                        messageBox("You lose!");
+                    }
+                    else
+                    {
+                        messageBox("You win!");
+                    }
+                }
+                // 对手状态更新
+                else
+                {
+                    componentRevealedProgressBar.Value = int.Parse(result[0]);
+                    componentMarkedProgressBar.Value = int.Parse(result[1]);
+                }
+                // 游戏结束
+                if (result[0] == "done" || result[0] == "fail" || result[0] == "gotit")
+                {
+                    if (finished == 0)
+                        sendBySocket("gotit 0");
+                    gameElapsedTimer.Stop();
+                    gameStatus = Status.NetConnected;
+                }
             }
         }
+
         // 开始游戏前的倒计时
         private void startCountDown()
         {
+            finished = 0;
+            gameStatus = Status.NetStarting;
             _countDown = 3;
             countDownTextBlock.Text = _countDown.ToString();
             countDownTextBlock.Visibility = Windows.UI.Xaml.Visibility.Visible;
@@ -556,7 +631,11 @@ namespace minesweeper
             {
                 countdownTimer.Stop();
                 countDownTextBlock.Visibility = Windows.UI.Xaml.Visibility.Collapsed;
-                gameStatus = Status.NetPlaying;
+                if (gameStatus == Status.NetStarting)
+                {
+                    gameStatus = Status.NetPlaying;
+                    gameStart();
+                }
             }
             else
             {
@@ -629,7 +708,7 @@ namespace minesweeper
                             {
                                 // 显示客户端发送过来的数据
                                 string receivedData = reader.ReadString(actualStringLength);
-                                writeLog("接收到数据: " + receivedData);
+                                // writeLog("接收到数据: " + receivedData);
                                 messageHandler(receivedData);
                             });
                         }
@@ -658,32 +737,44 @@ namespace minesweeper
 
         private void netStartGame(object sender, RoutedEventArgs e)
         {
-            if (gameStatus == Status.NetConnected)
+            if (gameStatus == Status.NetConnected || gameStatus == Status.NetReady)
             {
+                // 服务器发地图
                 if (_listener != null && _listener.Information.LocalPort == "2211")
                 {
                     board.reset();
                     refreshBoardView();
                     writeLog("正在向客户端发送地图...");
                     sendBySocket(board.ToString(), "发送成功，即将开始游戏");
-                    gameStatus = Status.NetStarting;
                 }
+                // 客户端发Ready
                 else
                 {
-                    writeLog("正在发出开始请求...");
-                    sendBySocket("Start", "发送成功，即将开始游戏");
+                    writeLog("正在发出准备信息...");
+                    sendBySocket("Ready", "成功发送准备信息");
                 }
+                if (gameStatus == Status.NetConnected)
+                    gameStatus = Status.NetReady;
+                else
+                    startCountDown();
             }
+        }
+
+        // 发送已翻开的数量和已插旗的数量
+        private void sendBoardStatistic()
+        {
+            sendBySocket(board.numRevealedSafe.ToString() + " " + board.numMarkedMines.ToString());
         }
 
         private void netEndGame(object sender, RoutedEventArgs e)
         {
-            if (gameStatus == Status.NetConnected || gameStatus == Status.NetPlaying || gameStatus == Status.NetStarting)
+            if (gameStatus.ToString().StartsWith("Net"))
             {
-                sendBySocket("Bye");
-                gameStatus = (_listener != null && _listener.Information.LocalPort == "2211") ? Status.NetListening : Status.LocalWaiting;
+                gameStatus = Status.LocalWaiting;
+                if (_client != null)
+                    sendBySocket("Bye");
+                closeSocket();
             }
-            closeSocket();
         }
 
         // 从客户端 socket 发送一个字符串数据到服务端 socket
@@ -720,11 +811,23 @@ namespace minesweeper
         {
             try
             {
-                _writer.DetachStream(); // 分离 DataWriter 与 Stream 的关联
-                _writer.Dispose();
+                if (_writer != null)
+                {
+                    _writer.DetachStream(); // 分离 DataWriter 与 Stream 的关联
+                    _writer.Dispose();
+                    _writer = null;
+                }
 
-                _client.Dispose();
-                _listener.Dispose();
+                if (_client != null)
+                {
+                    _client.Dispose();
+                    _client = null;
+                }
+                if (_listener != null)
+                {
+                    _listener.Dispose();
+                    _listener = null;
+                }
 
                 writeLog("已经断开连接");
                 gameStatus = Status.LocalWaiting;
