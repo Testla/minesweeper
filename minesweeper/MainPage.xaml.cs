@@ -427,8 +427,8 @@ namespace minesweeper
         private void writeLog(string message)
         {
             log.Content += message + Environment.NewLine;
-            log.ScrollToVerticalOffset(log.ScrollableHeight + 20);
-            // log.ChangeView(null, log.ScrollableHeight, null);
+            log.UpdateLayout();
+            log.ScrollToVerticalOffset(log.ScrollableHeight);
         }
 
         private void startListen(object sender, RoutedEventArgs e)
